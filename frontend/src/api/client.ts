@@ -1,9 +1,23 @@
 import axios from "axios";
 
 const TOKEN_KEY = "billing_token";
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL;
+
+function resolveApiBaseUrl(baseUrl?: string): string {
+  if (!baseUrl || baseUrl.trim() === "") {
+    return "/api";
+  }
+
+  const trimmed = baseUrl.trim();
+  if (trimmed.startsWith("/") || /^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "/api"
+  baseURL: resolveApiBaseUrl(rawBaseUrl)
 });
 
 api.interceptors.request.use((config) => {
