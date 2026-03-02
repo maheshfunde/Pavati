@@ -13,6 +13,7 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+type FormInput = z.input<typeof schema>;
 
 export function ProductsPage() {
   const queryClient = useQueryClient();
@@ -20,7 +21,7 @@ export function ProductsPage() {
 
   const { data = [], isLoading } = useQuery({ queryKey: ["products"], queryFn: fetchProducts });
 
-  const form = useForm<FormValues>({
+  const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { name: "", price: 0, stockQuantity: 0 }
   });

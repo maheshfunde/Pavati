@@ -18,12 +18,13 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+type FormInput = z.input<typeof schema>;
 
 export function PurchasesPage() {
   const queryClient = useQueryClient();
   const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: fetchProducts });
 
-  const form = useForm<FormValues>({
+  const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       supplierName: "",

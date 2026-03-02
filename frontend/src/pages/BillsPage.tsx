@@ -32,6 +32,7 @@ const billSchema = z.object({
 });
 
 type BillFormValues = z.infer<typeof billSchema>;
+type BillFormInput = z.input<typeof billSchema>;
 
 const paymentSchema = z.object({
   billId: z.coerce.number().positive(),
@@ -39,6 +40,7 @@ const paymentSchema = z.object({
 });
 
 type PaymentFormValues = z.infer<typeof paymentSchema>;
+type PaymentFormInput = z.input<typeof paymentSchema>;
 
 type ReminderData = {
   message: string;
@@ -74,14 +76,14 @@ export function BillsPage() {
 
   const shownBills = filteredBills ?? bills;
 
-  const billForm = useForm<BillFormValues>({
+  const billForm = useForm<BillFormInput, unknown, BillFormValues>({
     resolver: zodResolver(billSchema),
     defaultValues: { customerId: 0, items: [{ productId: 0, quantity: 1 }] }
   });
 
   const items = useFieldArray({ control: billForm.control, name: "items" });
 
-  const paymentForm = useForm<PaymentFormValues>({
+  const paymentForm = useForm<PaymentFormInput, unknown, PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
     defaultValues: { billId: 0, amountPaid: 0 }
   });
