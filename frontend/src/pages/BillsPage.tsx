@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
   createBill,
@@ -21,6 +21,7 @@ import type { BillResponse } from "../api/types";
 
 const billSchema = z.object({
   customerId: z.coerce.number().positive(),
+  amountPaid: z.coerce.number().min(0).default(0),
   items: z
     .array(
       z.object({
@@ -33,14 +34,6 @@ const billSchema = z.object({
 
 type BillFormValues = z.infer<typeof billSchema>;
 type BillFormInput = z.input<typeof billSchema>;
-
-const paymentSchema = z.object({
-  billId: z.coerce.number().positive(),
-  amountPaid: z.coerce.number().positive()
-});
-
-type PaymentFormValues = z.infer<typeof paymentSchema>;
-type PaymentFormInput = z.input<typeof paymentSchema>;
 
 type ReminderData = {
   message: string;
@@ -78,37 +71,17 @@ export function BillsPage() {
 
   const billForm = useForm<BillFormInput, unknown, BillFormValues>({
     resolver: zodResolver(billSchema),
-    defaultValues: { customerId: 0, items: [{ productId: 0, quantity: 1 }] }
+    defaultValues: { customerId: 0, amountPaid: 0, items: [{ productId: 0, quantity: 1 }] }
   });
 
   const items = useFieldArray({ control: billForm.control, name: "items" });
 
-  const paymentForm = useForm<PaymentFormInput, unknown, PaymentFormValues>({
-    resolver: zodResolver(paymentSchema),
-    defaultValues: { billId: 0, amountPaid: 0 }
-  });
-
   const createMutation = useMutation({
     mutationFn: createBill,
-    onSuccess: () => {
-      billForm.reset({ customerId: 0, items: [{ productId: 0, quantity: 1 }] });
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      setFilteredBills(null);
-      setFilterLabel("Showing all bills");
-    }
   });
 
   const paymentMutation = useMutation({
-    mutationFn: ({ billId, amountPaid }: PaymentFormValues) => makePayment(billId, { amountPaid }),
-    onSuccess: () => {
-      paymentForm.reset({ billId: 0, amountPaid: 0 });
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      setFilteredBills(null);
-      setFilterLabel("Showing all bills");
-    }
+    mutationFn: ({ billId, amountPaid }: { billId: number; amountPaid: number }) => makePayment(billId, { amountPaid })
   });
 
   const pendingFilterMutation = useMutation({
@@ -156,10 +129,79 @@ export function BillsPage() {
     }
   });
 
-  const billOptions = useMemo(
-    () => bills.map((b) => ({ id: b.id, label: `${b.invoiceCode} - ${b.customerName}` })),
-    [bills]
+  const todayLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      }).format(new Date()),
+    []
   );
+  const customerId = useWatch({ control: billForm.control, name: "customerId" });
+  const formItems = useWatch({ control: billForm.control, name: "items" });
+  const amountPaid = useWatch({ control: billForm.control, name: "amountPaid" });
+  const selectedCustomer = useMemo(
+    () => customers.find((c) => c.id === Number(customerId)),
+    [customers, customerId]
+  );
+  const previewItems = useMemo(
+    () =>
+      (formItems ?? [])
+        .map((item, index) => {
+          const product = products.find((p) => p.id === Number(item.productId));
+          const quantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 0;
+          const unitPrice = Number.isFinite(Number(product?.price)) ? Number(product?.price) : 0;
+          return {
+            key: `${index}-${item.productId}-${quantity}`,
+            line: index + 1,
+            name: product?.name ?? "Select product",
+            quantity,
+            unitPrice,
+            lineTotal: quantity * unitPrice
+          };
+        })
+        .filter((item) => item.quantity > 0),
+    [formItems, products]
+  );
+  const totalAmount = useMemo(
+    () => previewItems.reduce((sum, item) => sum + item.lineTotal, 0),
+    [previewItems]
+  );
+  const normalizedPaid = Number.isFinite(Number(amountPaid)) ? Number(amountPaid) : 0;
+  const clampedPaid = Math.max(0, Math.min(normalizedPaid, totalAmount));
+  const remaining = Math.max(0, totalAmount - clampedPaid);
+  const paymentStatus = totalAmount <= 0 ? "PENDING" : remaining === 0 ? "FULL" : clampedPaid > 0 ? "PARTIAL" : "PENDING";
+  const money = useMemo(
+    () =>
+      new Intl.NumberFormat("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }),
+    []
+  );
+
+  async function onSubmitBill(values: BillFormValues) {
+    const created = await createMutation.mutateAsync({
+      customerId: values.customerId,
+      items: values.items
+    });
+
+    const enteredPaid = Math.max(0, Number(values.amountPaid || 0));
+    if (enteredPaid > 0) {
+      await paymentMutation.mutateAsync({
+        billId: created.id,
+        amountPaid: enteredPaid
+      });
+    }
+
+    billForm.reset({ customerId: 0, amountPaid: 0, items: [{ productId: 0, quantity: 1 }] });
+    queryClient.invalidateQueries({ queryKey: ["bills"] });
+    queryClient.invalidateQueries({ queryKey: ["products"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    setFilteredBills(null);
+    setFilterLabel("Showing all bills");
+  }
 
   return (
     <section className="stack">
@@ -167,68 +209,138 @@ export function BillsPage() {
         <h1>Bills</h1>
       </header>
 
-      <div className="card">
+      <div className="card bill-card">
         <h2>Create Bill</h2>
-        <form className="grid two-gap" onSubmit={billForm.handleSubmit((v) => createMutation.mutate(v))}>
-          <label>
-            Customer
-            <select {...billForm.register("customerId")}>
-              <option value={0}>Select customer</option>
-              {customers.map((c) => (
-                <option value={c.id} key={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {items.fields.map((field, index) => (
-            <div className="grid form-row" key={field.id}>
-              <select {...billForm.register(`items.${index}.productId`)}>
-                <option value={0}>Select product</option>
-                {products.map((p) => (
-                  <option value={p.id} key={p.id}>
-                    {p.name}
+        <p className="muted">Fill this like a handwritten invoice sheet.</p>
+        <form className="paper-bill" onSubmit={billForm.handleSubmit(onSubmitBill)}>
+          <div className="paper-bill-head">
+            <div>
+              <p className="paper-label">Customer Name</p>
+              <select className="paper-field" {...billForm.register("customerId", { valueAsNumber: true })}>
+                <option value={0}>Select customer</option>
+                {customers.map((c) => (
+                  <option value={c.id} key={c.id}>
+                    {c.name}
                   </option>
                 ))}
               </select>
-              <input type="number" min={1} placeholder="Qty" {...billForm.register(`items.${index}.quantity`)} />
-              <button className="button button-ghost" type="button" onClick={() => items.remove(index)}>
-                Remove
-              </button>
             </div>
-          ))}
+            <div>
+              <p className="paper-label">Bill Date</p>
+              <p className="paper-date">{todayLabel}</p>
+            </div>
+          </div>
+
+          <div className="paper-lines">
+            <div className="paper-lines-head">
+              <span>Line</span>
+              <span>Item</span>
+              <span>Qty</span>
+              <span>Amount</span>
+              <span></span>
+            </div>
+            {items.fields.map((field, index) => (
+              <div className="paper-line-row" key={field.id}>
+                <span className="line-number">{index + 1}</span>
+                <select className="paper-field" {...billForm.register(`items.${index}.productId`, { valueAsNumber: true })}>
+                  <option value={0}>Select product</option>
+                  {products.map((p) => (
+                    <option value={p.id} key={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="paper-field qty-field"
+                  type="number"
+                  min={1}
+                  placeholder="Qty"
+                  {...billForm.register(`items.${index}.quantity`, { valueAsNumber: true })}
+                />
+                <span className="line-amount">
+                  Rs.{" "}
+                  {money.format(
+                    (products.find((p) => p.id === Number(formItems?.[index]?.productId))?.price ?? 0) *
+                      Number(formItems?.[index]?.quantity ?? 0)
+                  )}
+                </span>
+                <button
+                  className={`button button-ghost row-action ${index === items.fields.length - 1 ? "add-line" : "remove-line"}`}
+                  type="button"
+                  onClick={() =>
+                    index === items.fields.length - 1
+                      ? items.append({ productId: 0, quantity: 1 })
+                      : items.remove(index)
+                  }
+                  disabled={index !== items.fields.length - 1 && items.fields.length === 1}
+                >
+                  {index === items.fields.length - 1 ? "+" : "x"}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="paper-payment-row">
+            <label>
+              Advance / Received Payment
+              <input
+                className="paper-field"
+                type="number"
+                step="0.01"
+                min={0}
+                placeholder="0.00"
+                {...billForm.register("amountPaid", { valueAsNumber: true })}
+              />
+            </label>
+          </div>
+
+          <div className="bill-preview">
+            <div className="bill-preview-head">
+              <h3>Final Bill Preview</h3>
+              <span className={`status-pill status-${paymentStatus.toLowerCase()}`}>{paymentStatus}</span>
+            </div>
+            <div className="preview-meta">
+              <p>Customer: <strong>{selectedCustomer?.name ?? "Not selected"}</strong></p>
+              <p>Date: <strong>{todayLabel}</strong></p>
+            </div>
+            <table className="preview-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Qty</th>
+                  <th>Rate</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="muted">Add items to see bill preview</td>
+                  </tr>
+                ) : (
+                  previewItems.map((item) => (
+                    <tr key={item.key}>
+                      <td>{item.name}</td>
+                      <td>{item.quantity}</td>
+                      <td>Rs. {money.format(item.unitPrice)}</td>
+                      <td>Rs. {money.format(item.lineTotal)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            <div className="preview-totals">
+              <p><span>Total</span><strong>Rs. {money.format(totalAmount)}</strong></p>
+              <p><span>Paid</span><strong>Rs. {money.format(clampedPaid)}</strong></p>
+              <p><span>Remaining</span><strong>Rs. {money.format(remaining)}</strong></p>
+            </div>
+          </div>
 
           <div className="actions">
-            <button
-              className="button button-ghost"
-              type="button"
-              onClick={() => items.append({ productId: 0, quantity: 1 })}
-            >
-              Add Item
-            </button>
-            <button className="button" type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Creating..." : "Create Bill"}
+            <button className="button" type="submit" disabled={createMutation.isPending || paymentMutation.isPending}>
+              {createMutation.isPending || paymentMutation.isPending ? "Preparing Bill..." : "Create Bill"}
             </button>
           </div>
-        </form>
-      </div>
-
-      <div className="card">
-        <h2>Receive Payment</h2>
-        <form className="grid form-row" onSubmit={paymentForm.handleSubmit((v) => paymentMutation.mutate(v))}>
-          <select {...paymentForm.register("billId")}>
-            <option value={0}>Select bill</option>
-            {billOptions.map((b) => (
-              <option value={b.id} key={b.id}>
-                {b.label}
-              </option>
-            ))}
-          </select>
-          <input type="number" step="0.01" placeholder="Amount" {...paymentForm.register("amountPaid")} />
-          <button className="button" type="submit" disabled={paymentMutation.isPending}>
-            {paymentMutation.isPending ? "Saving..." : "Record Payment"}
-          </button>
         </form>
       </div>
 

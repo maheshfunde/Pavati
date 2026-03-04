@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Comparator;
 
 @Service
 @RequiredArgsConstructor
@@ -67,6 +68,18 @@ public class PurchaseService {
         Purchase saved = purchaseRepository.save(purchase);
         return convert(saved);
     }
+
+    @Transactional(readOnly = true)
+    public List<PurchaseResponse> getPurchases() {
+        Long shopId = securityUtils.getCurrentShopId();
+
+        return purchaseRepository.findByShopId(shopId)
+                .stream()
+                .sorted(Comparator.comparing(Purchase::getPurchaseDate).reversed())
+                .map(this::convert)
+                .toList();
+    }
+
     private PurchaseResponse convert(Purchase purchase) {
 
         List<PurchaseResponse.Item> items =

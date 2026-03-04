@@ -5,6 +5,7 @@ import com.mybill.billing.dto.PurchaseResponse;
 import com.mybill.billing.service.PurchaseService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/purchases")
@@ -18,5 +19,10 @@ public class PurchaseController {
             @RequestBody PurchaseRequest request) {
 
         return purchaseService.createPurchase(request);
+    }
+
+    @GetMapping
+    public List<PurchaseResponse> getPurchases() {
+        return purchaseService.getPurchases();
     }
 }

@@ -151,3 +151,8 @@ export async function createPurchase(payload: PurchaseRequest): Promise<Purchase
   const { data } = await api.post<PurchaseResponse>("/purchases", payload);
   return data;
 }
+
+export async function fetchPurchases(): Promise<PurchaseResponse[]> {
+  const { data } = await api.get<PurchaseResponse[]>("/purchases");
+  return data;
+}

@@ -1,8 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
-import { createPurchase, fetchProducts } from "../api/endpoints";
+import { createPurchase, fetchProducts, fetchPurchases } from "../api/endpoints";
 
 const schema = z.object({
   supplierName: z.string().min(2),
@@ -23,6 +24,10 @@ type FormInput = z.input<typeof schema>;
 export function PurchasesPage() {
   const queryClient = useQueryClient();
   const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: fetchProducts });
+  const { data: purchases = [], isLoading: purchasesLoading } = useQuery({
+    queryKey: ["purchases"],
+    queryFn: fetchPurchases
+  });
 
   const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
@@ -43,8 +48,18 @@ export function PurchasesPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["purchases"] });
     }
   });
+
+  const money = useMemo(
+    () =>
+      new Intl.NumberFormat("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }),
+    []
+  );
 
   return (
     <section className="stack">
@@ -100,6 +115,51 @@ export function PurchasesPage() {
         </form>
 
         {mutation.isSuccess && <p className="success-text">Purchase saved and stock updated.</p>}
+      </div>
+
+      <div className="card">
+        <h2>Purchase History</h2>
+        {purchasesLoading ? (
+          <p className="muted">Loading purchase history...</p>
+        ) : purchases.length === 0 ? (
+          <p className="muted">No purchases recorded yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Supplier</th>
+                <th>Items</th>
+                <th>Total Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {purchases.map((purchase) => {
+                const totalAmount = purchase.items.reduce(
+                  (sum, item) => sum + item.quantity * item.purchasePrice,
+                  0
+                );
+
+                return (
+                  <tr key={purchase.id}>
+                    <td>{new Date(purchase.purchaseDate).toLocaleString()}</td>
+                    <td>{purchase.supplierName}</td>
+                    <td>
+                      <div className="stack">
+                        {purchase.items.map((item, idx) => (
+                          <p key={`${purchase.id}-${item.productName}-${idx}`}>
+                            {item.productName} x {item.quantity} @ Rs. {money.format(item.purchasePrice)}
+                          </p>
+                        ))}
+                      </div>
+                    </td>
+                    <td>Rs. {money.format(totalAmount)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );
