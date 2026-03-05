@@ -58,6 +58,7 @@ export function BillsPage() {
   const [filteredBills, setFilteredBills] = useState<BillResponse[] | null>(null);
   const [filterLabel, setFilterLabel] = useState("Showing all bills");
   const [remindersByBill, setRemindersByBill] = useState<Record<number, ReminderData>>({});
+  const [paymentDraftByBill, setPaymentDraftByBill] = useState<Record<number, string>>({});
 
   const { data: bills = [], isLoading: billsLoading } = useQuery({
     queryKey: ["bills"],
@@ -201,6 +202,26 @@ export function BillsPage() {
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     setFilteredBills(null);
     setFilterLabel("Showing all bills");
+  }
+
+  async function applyPaymentToExistingBill(billId: number) {
+    const draft = Number(paymentDraftByBill[billId] ?? 0);
+    if (!Number.isFinite(draft) || draft <= 0) {
+      return;
+    }
+
+    await paymentMutation.mutateAsync({
+      billId,
+      amountPaid: draft
+    });
+
+    setPaymentDraftByBill((prev) => ({ ...prev, [billId]: "" }));
+    queryClient.invalidateQueries({ queryKey: ["bills"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    if (filteredBills) {
+      setFilteredBills(null);
+      setFilterLabel("Showing all bills");
+    }
   }
 
   return (
@@ -451,6 +472,29 @@ export function BillsPage() {
                         disabled={reminderMutation.isPending}
                       >
                         Get Reminder
+                      </button>
+                    </div>
+                    <div className="payment-inline">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder="Received amount"
+                        value={paymentDraftByBill[bill.id] ?? ""}
+                        onChange={(e) =>
+                          setPaymentDraftByBill((prev) => ({
+                            ...prev,
+                            [bill.id]: e.target.value
+                          }))
+                        }
+                      />
+                      <button
+                        className="button"
+                        type="button"
+                        onClick={() => applyPaymentToExistingBill(bill.id)}
+                        disabled={paymentMutation.isPending || !(Number(paymentDraftByBill[bill.id] ?? 0) > 0)}
+                      >
+                        Update Paid
                       </button>
                     </div>
                     {remindersByBill[bill.id] && (

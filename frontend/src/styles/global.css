@@ -328,6 +328,17 @@ td {
   background: #fafefe;
 }
 
+.payment-inline {
+  margin-top: 0.55rem;
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.payment-inline input {
+  max-width: 170px;
+}
+
 .success-text {
   color: #0e6f47;
   font-weight: 600;
@@ -889,5 +900,14 @@ td {
   .product-form-grid,
   .products-card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .payment-inline {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .payment-inline input {
+    max-width: 100%;
   }
 }
